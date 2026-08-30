@@ -187,6 +187,8 @@ html[dir="rtl"] .icon-flip{transform:scaleX(-1);}
 .icon-btn svg{width:18px;height:18px;}
 .menu-toggle{display:none;}
 .search-wrap{flex:1;max-width:420px;position:relative;}
+.mobile-search-btn{display:none;flex-shrink:0;}
+.mobile-search-overlay-wrap{display:none;}
 .search-wrap svg{position:absolute;top:50%;transform:translateY(-50%);inset-inline-start:12px;width:16px;height:16px;color:var(--text-400);}
 .search-input{
   width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-md);
@@ -486,6 +488,8 @@ html[dir="rtl"] .toggle input:checked + .track::before{transform:translateX(-16p
 
 /* stat strip (payments/inventory/shipping/refunds pages) */
 .stat-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;}
+.method-grid{grid-template-columns:repeat(4,1fr);}
+.role-chip-grid{grid-template-columns:repeat(5,1fr);}
 .stat-box{background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;}
 .stat-box .l{font-size:11px;font-weight:700;color:var(--text-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;}
 .stat-box .v{font-size:21px;font-weight:800;}
@@ -700,6 +704,8 @@ html[dir="rtl"] .tech-badge{padding:5px 6px 5px 12px;}
   .dash-row2{grid-template-columns:1fr;}
   .form-grid{grid-template-columns:1fr;}
   .stat-strip{grid-template-columns:repeat(2,1fr);}
+  .method-grid{grid-template-columns:repeat(2,1fr);}
+  .role-chip-grid{grid-template-columns:1fr;}
   .settings-shell{grid-template-columns:1fr;}
   .settings-nav{border-inline-end:none;border-bottom:1px solid var(--border);display:flex;overflow-x:auto;gap:4px;padding:10px;}
 }
@@ -714,10 +720,49 @@ html[dir="rtl"] .tech-badge{padding:5px 6px 5px 12px;}
   .insights-panel{grid-template-columns:1fr;}
   .insight-card{border-inline-start:none;border-top:1px solid rgba(255,255,255,.08);}
   .insight-card:first-of-type{border-top:none;}
+
+  /* Topbar: the profile name/role text and the language label were
+     forcing the whole topbar (and therefore the whole page) wider than
+     the viewport on every single page — this is what caused the entire
+     dashboard to horizontally rubber-band on phones. Compact to icons only. */
+  .topbar{gap:6px;padding:0 12px;}
+  .topbar-right{gap:2px;}
+  .profile-meta{display:none;}
+  .profile-btn{padding:5px;gap:0;}
+  .lang-toggle span{display:none;}
+  .lang-toggle{padding:8px;}
+  .topbar-divider{display:none;}
+
+  /* Search collapses into an icon that opens a full-width overlay bar
+     instead of disappearing with no replacement. */
+  .mobile-search-btn{display:flex;}
+  .topbar.mobile-search-open > *:not(.mobile-search-overlay-wrap){visibility:hidden;}
+  .mobile-search-overlay-wrap{
+    display:none;
+  }
+  .topbar.mobile-search-open .mobile-search-overlay-wrap{
+    display:flex;position:absolute;inset:0;background:#fff;align-items:center;
+    padding:0 12px;gap:8px;z-index:60;visibility:visible;
+  }
+  .topbar.mobile-search-open .mobile-search-overlay-wrap .search-wrap{display:flex;flex:1;max-width:none;}
+
+  /* Tabs (e.g. customer profile) scroll horizontally in their own strip
+     instead of overflowing the whole page. */
+  .tabs{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;}
+  .tab{white-space:nowrap;flex-shrink:0;}
+
+  /* Any inline/ad-hoc grid that assumed desktop width collapses to a
+     single column as a safe default on phones. */
+  .method-grid, .role-chip-grid{grid-template-columns:1fr 1fr !important;}
 }
 @media (max-width:520px){
   .kpi-grid{grid-template-columns:1fr;}
+  .method-grid, .role-chip-grid{grid-template-columns:1fr !important;}
 }
+/* Defensive backstop: every element that legitimately needs horizontal
+   scroll (tables, tabs, the product image grid) manages its own overflow-x
+   internally — the page itself should never need to side-scroll. */
+html, body{overflow-x:hidden;}
 </style>
 </head>
 <body>
@@ -1491,6 +1536,15 @@ function renderTopbar(){
       <input class="search-input" id="globalSearch" placeholder="${t('searchAnything')}" oninput="handleGlobalSearch(this.value)" onfocus="if(this.value) document.getElementById('searchResultsPanel').classList.add('open')">
       <div class="search-results" id="searchResultsPanel"></div>
     </div>
+    <button class="icon-btn mobile-search-btn" onclick="toggleMobileSearch()">${icon('search')}</button>
+    <div class="mobile-search-overlay-wrap">
+      <div class="search-wrap dropdown-anchor" style="max-width:none;">
+        ${icon('search')}
+        <input class="search-input" id="globalSearchMobile" placeholder="${t('searchAnything')}" oninput="handleGlobalSearch(this.value)">
+        <div class="search-results" id="searchResultsPanelMobile"></div>
+      </div>
+      <button class="icon-btn" onclick="toggleMobileSearch()">${icon('x')}</button>
+    </div>
     <div class="topbar-spacer"></div>
     <div class="topbar-right">
       <button class="lang-toggle" onclick="toggleLanguage()">${icon('globe')}<span>${state.lang==='en'?'العربية':'English'}</span></button>
@@ -1540,26 +1594,40 @@ function renderTopbar(){
 }
 
 function handleGlobalSearch(q){
-  const panel = document.getElementById('searchResultsPanel');
-  if(!q){ panel.classList.remove('open'); return; }
+  // Two search inputs exist (the desktop bar + the mobile overlay) but only
+  // one is ever visible at a time — update whichever panels are present.
+  const panels = [document.getElementById('searchResultsPanel'), document.getElementById('searchResultsPanelMobile')].filter(Boolean);
+  if(!panels.length) return;
+  if(!q){ panels.forEach(p=>p.classList.remove('open')); return; }
   const ql = q.toLowerCase();
   const prods = DB.products.filter(p=>p.name.toLowerCase().includes(ql)||p.id.toLowerCase().includes(ql)).slice(0,3);
   const ords = DB.orders.filter(o=>o.id.toLowerCase().includes(ql)||o.customer.toLowerCase().includes(ql)).slice(0,3);
   const custs = DB.customers.filter(c=>c.name.toLowerCase().includes(ql)||c.email.toLowerCase().includes(ql)).slice(0,3);
+  let html;
   if(!prods.length && !ords.length && !custs.length){
-    panel.innerHTML = `<div style="padding:18px;text-align:center;color:var(--text-400);font-size:12.5px;">${state.lang==='ar'?'لا توجد نتائج':'No results found'}</div>`;
-    panel.classList.add('open'); return;
+    html = `<div style="padding:18px;text-align:center;color:var(--text-400);font-size:12.5px;">${state.lang==='ar'?'لا توجد نتائج':'No results found'}</div>`;
+  }else{
+    html='';
+    if(custs.length){ html+=`<div class="sr-group-label">${t('customers')}</div>` + custs.map(c=>`<div class="sr-item" onclick="nav('#/customers/${c.id}')"><div><div class="l1">${c.name}</div><div class="l2 ltr-embed">${c.email}</div></div>${icon('chevright')}</div>`).join(''); }
+    if(ords.length){ html+=`<div class="sr-group-label">${t('orders')}</div>` + ords.map(o=>`<div class="sr-item" onclick="nav('#/orders/${o.id}')"><div><div class="l1 ltr-embed">#${o.id}</div><div class="l2">${o.customer} · ${money(o.amount)}</div></div>${icon('chevright')}</div>`).join(''); }
+    if(prods.length){ html+=`<div class="sr-group-label">${t('products')}</div>` + prods.map(p=>`<div class="sr-item" onclick="nav('#/products')"><div><div class="l1">${p.name}</div><div class="l2">${t('sku')} <bdi class="ltr-embed">${p.id}</bdi> · ${t('stock')} ${p.stock}</div></div>${icon('chevright')}</div>`).join(''); }
   }
-  let html='';
-  if(custs.length){ html+=`<div class="sr-group-label">${t('customers')}</div>` + custs.map(c=>`<div class="sr-item" onclick="nav('#/customers/${c.id}')"><div><div class="l1">${c.name}</div><div class="l2 ltr-embed">${c.email}</div></div>${icon('chevright')}</div>`).join(''); }
-  if(ords.length){ html+=`<div class="sr-group-label">${t('orders')}</div>` + ords.map(o=>`<div class="sr-item" onclick="nav('#/orders/${o.id}')"><div><div class="l1 ltr-embed">#${o.id}</div><div class="l2">${o.customer} · ${money(o.amount)}</div></div>${icon('chevright')}</div>`).join(''); }
-  if(prods.length){ html+=`<div class="sr-group-label">${t('products')}</div>` + prods.map(p=>`<div class="sr-item" onclick="nav('#/products')"><div><div class="l1">${p.name}</div><div class="l2">${t('sku')} <bdi class="ltr-embed">${p.id}</bdi> · ${t('stock')} ${p.stock}</div></div>${icon('chevright')}</div>`).join(''); }
-  panel.innerHTML = html;
-  panel.classList.add('open');
+  panels.forEach(p=>{ p.innerHTML = html; p.classList.add('open'); });
 }
 
 function toggleSidebarCollapse(){ state.sidebarCollapsed=!state.sidebarCollapsed; document.getElementById('sidebar').outerHTML=renderSidebar(); updateNavIndicator(); }
 function toggleSidebarMobile(){ state.sidebarMobileOpen=!state.sidebarMobileOpen; document.getElementById('sidebar').outerHTML=renderSidebar(); updateNavIndicator(); }
+
+/** Search collapses to an icon on phones (no room for the full bar in the
+ *  topbar) — tapping it opens a full-width overlay instead of just vanishing. */
+function toggleMobileSearch(){
+  const topbar = document.querySelector('.topbar');
+  if(!topbar) return;
+  topbar.classList.toggle('mobile-search-open');
+  if(topbar.classList.contains('mobile-search-open')){
+    setTimeout(()=>document.getElementById('globalSearchMobile')?.focus(), 60);
+  }
+}
 
 /* smoothly slides a highlight bar to the active nav item, re-measuring on every render */
 function updateNavIndicator(){
@@ -2736,7 +2804,7 @@ function renderShipping(){
   </div>
   <div class="card">
     <div class="card-head"><h3>${state.lang==='ar'?'طرق الشحن':'Shipping methods'}</h3></div>
-    <div class="card-pad" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+    <div class="card-pad method-grid" style="display:grid;gap:12px;">
       ${[['truck',t('standardDelivery')],['truck',t('expressDelivery')],['mappin',t('localDelivery')],['building',t('pickup')]].map(m=>`
         <div class="card card-pad" style="text-align:center;">
           <div class="kpi-icon" style="background:var(--primary-tint);color:var(--navy-800);margin:0 auto 10px;">${icon(m[0])}</div>
@@ -2782,7 +2850,7 @@ function renderReportsHub(){
   ];
   return `
   <div class="page-header"><h1>${t('reportsHub')}</h1></div>
-  <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);">
+  <div class="kpi-grid">
     ${cards.map(c=>`
       <div class="card card-pad" style="cursor:pointer;" onclick="nav('${c[2]}')">
         <div class="kpi-icon" style="background:var(--primary-tint);color:var(--navy-800);margin-bottom:12px;">${icon(c[0])}</div>
@@ -2946,7 +3014,7 @@ const ROLE_DEFAULTS = {
 function renderRoles(){
   return `
   <div class="page-header"><h1>${t('rolesPerms')}</h1></div>
-  <div class="dash-row2" style="margin-bottom:16px;grid-template-columns:repeat(5,1fr);">
+  <div class="dash-row2 role-chip-grid" style="margin-bottom:16px;">
     ${ROLES.map(r=>`<div class="card card-pad" style="text-align:center;"><div class="role-chip" style="margin-bottom:8px;">${t(r)}</div><div class="faint" style="font-size:11.5px;">${state.lang==='ar'?'دور':'role'}</div></div>`).join('')}
   </div>
   <div class="card">
