@@ -905,7 +905,8 @@ en:{
   searchPlaceholder:"Search products, orders, customers…",
   notifications:"Notifications", messages:"Messages", markAllRead:"Mark all as read",
   administrator:"Administrator", profile:"Profile", security:"Security", sessions:"Sessions", signOut:"Sign out",
-  goodMorning:"Good morning, John.", heroSub:"Here's what's happening with your store today.",
+  greetMorning:"Good morning", greetAfternoon:"Good afternoon", greetEvening:"Good evening",
+  heroSub:"Here's what's happening with your store today.",
   totalRevenue:"Total Revenue", totalOrders:"Total Orders", customersKpi:"Customers", productsKpi:"Products",
   vsPrev:"vs previous period",
   d7:"7 Days", d30:"30 Days", d90:"90 Days", d12m:"12 Months", today:"Today",
@@ -1008,7 +1009,8 @@ ar:{
   searchPlaceholder:"ابحث في المنتجات، الطلبات، العملاء…",
   notifications:"الإشعارات", messages:"الرسائل", markAllRead:"تعليم الكل كمقروء",
   administrator:"المسؤول", profile:"الملف الشخصي", security:"الأمان", sessions:"الجلسات", signOut:"تسجيل الخروج",
-  goodMorning:"صباح الخير، جون.", heroSub:"إليك آخر مستجدات متجرك اليوم.",
+  greetMorning:"صباح الخير", greetAfternoon:"مساء الخير", greetEvening:"مساء الخير",
+  heroSub:"إليك آخر مستجدات متجرك اليوم.",
   totalRevenue:"إجمالي الإيرادات", totalOrders:"إجمالي الطلبات", customersKpi:"العملاء", productsKpi:"المنتجات",
   vsPrev:"مقارنة بالفترة السابقة",
   d7:"7 أيام", d30:"30 يومًا", d90:"90 يومًا", d12m:"12 شهرًا", today:"اليوم",
@@ -1217,6 +1219,7 @@ const state = {
   chartRange:'7',
   chartMetrics:{sales:true,orders:true,refunds:false},
   loggedIn:false,
+  currentUser:{name:'John Admin', role:'administrator', initials:'JA'},
   charts:{},
   settingsTab:'localization',
   customerTab:'overview',
@@ -1275,6 +1278,14 @@ function money(n){
 }
 function num(n){ return `<bdi class="ltr-embed">${n.toLocaleString('en-US')}</bdi>`; }
 function ltr(s){ return `<bdi class="ltr-embed">${s}</bdi>`; }
+
+/** Time-of-day-aware greeting — recalculated on every dashboard render, not cached. */
+function greeting(){
+  const hour = new Date().getHours();
+  if(hour < 12) return t('greetMorning');
+  if(hour < 17) return t('greetAfternoon');
+  return t('greetEvening');
+}
 
 function statusBadge(status){
   const map = {
@@ -1512,8 +1523,8 @@ function renderTopbar(){
       <div class="topbar-divider"></div>
       <div class="dropdown-anchor">
         <div class="profile-btn" onclick="event.stopPropagation();toggleDropdown('profilePanel')">
-          <div class="avatar">JA</div>
-          <div class="profile-meta"><div class="pname">John Admin</div><div class="prole">${t('administrator')}</div></div>
+          <div class="avatar">${state.currentUser.initials}</div>
+          <div class="profile-meta"><div class="pname">${state.currentUser.name}</div><div class="prole">${t('administrator')}</div></div>
           ${icon('chevdown')}
         </div>
         <div class="dropdown-panel profile-menu" id="profilePanel">
@@ -1567,11 +1578,17 @@ function toggleLanguage(){
   state.lang = state.lang==='en' ? 'ar' : 'en';
   document.documentElement.lang = state.lang;
   document.documentElement.dir = state.lang==='ar' ? 'rtl' : 'ltr';
+  if(state.loggedIn && loadSession()){
+    // keep the persisted session's language in sync so a refresh doesn't
+    // silently revert the dashboard back to English
+    persistSession(!!localStorage.getItem(SESSION_KEY));
+  }
   fullRerender();
   toast(state.lang==='ar' ? 'تم التحويل إلى العربية (RTL)' : 'Switched to English (LTR)','globe');
 }
 
 function doLogout(){
+  clearSession();
   state.loggedIn=false; state.route='#/dashboard'; location.hash='#/dashboard'; renderApp();
 }
 
@@ -1579,12 +1596,21 @@ function doLogout(){
    ROUTER
    ============================================================ */
 function nav(route){ location.hash = route; }
-window.addEventListener('hashchange', ()=>{ state.route = location.hash || '#/dashboard'; state.sidebarMobileOpen=false; renderPageOnly(); });
+window.addEventListener('hashchange', ()=>{
+  state.route = location.hash || '#/dashboard';
+  state.sidebarMobileOpen=false;
+  // Logging out changes location.hash too, which fires this same listener —
+  // if we're no longer logged in, let renderApp() show the login screen
+  // instead of assuming the dashboard shell (sidebar, topbar) still exists.
+  if(!state.loggedIn){ renderApp(); return; }
+  renderPageOnly();
+});
 
 function fullRerender(){
   renderApp();
 }
 function renderPageOnly(){
+  if(!state.loggedIn || !document.getElementById('sidebar')){ renderApp(); return; }
   document.getElementById('sidebar').outerHTML = renderSidebar();
   document.querySelector('.content').innerHTML = `<div class="page-anim">${renderPage(state.route)}</div>`;
   window.scrollTo(0,0);
@@ -1629,7 +1655,7 @@ function renderLogin(){
       <form onsubmit="event.preventDefault(); doLogin();">
         <div class="field"><label>${t('email_')}</label><input class="input" type="email" placeholder="john@storehub.com" value="john@storehub.com"></div>
         <div class="field" style="margin-bottom:10px;"><label>Password</label><input class="input" type="password" placeholder="••••••••••••" value="••••••••••••"></div>
-        <label class="check-row" style="margin-bottom:16px;"><input type="checkbox" checked> ${t('rememberMe')}</label>
+        <label class="check-row" style="margin-bottom:16px;"><input type="checkbox" id="rememberMeCheckbox" checked> ${t('rememberMe')}</label>
         <button class="btn btn-primary" style="width:100%;padding:11px;" type="submit">${t('signIn')}</button>
       </form>
       <div class="login-foot"><a onclick="toast(state.lang==='ar'?'تم إرسال رابط إعادة التعيين':'Reset link sent')">${t('forgotPassword')}</a></div>
@@ -1644,7 +1670,12 @@ function renderLogin(){
     </div>
   </div>`;
 }
-function doLogin(){ state.loggedIn=true; location.hash='#/dashboard'; state.route='#/dashboard'; renderApp(); }
+function doLogin(){
+  const remember = document.getElementById('rememberMeCheckbox')?.checked ?? true;
+  state.loggedIn=true;
+  persistSession(remember);
+  location.hash='#/dashboard'; state.route='#/dashboard'; renderApp();
+}
 
 /* ============================================================
    DASHBOARD
@@ -1658,7 +1689,7 @@ function renderDashboard(){
         <h1>${t('dashboard')}</h1>
         <span class="live-badge"><span class="ld"></span>${state.lang==='ar'?'مباشر':'Live'}</span>
       </div>
-      <div class="sub">${t('goodMorning')} ${t('heroSub')}</div>
+      <div class="sub">${greeting()}, ${state.currentUser.name}. ${t('heroSub')}</div>
     </div>
     <div class="header-actions">
       <select class="fselect">
@@ -3144,9 +3175,41 @@ function initSalesReportChart(){
 }
 
 /* ============================================================
+   SESSION PERSISTENCE — survives page refresh, respects "Remember me"
+   ============================================================ */
+const SESSION_KEY = 'storehub_session';
+function persistSession(remember){
+  const payload = JSON.stringify({loggedIn:true, name: state.currentUser.name, lang: state.lang});
+  if(remember){
+    localStorage.setItem(SESSION_KEY, payload);
+    sessionStorage.removeItem(SESSION_KEY);
+  }else{
+    sessionStorage.setItem(SESSION_KEY, payload);
+    localStorage.removeItem(SESSION_KEY);
+  }
+}
+function loadSession(){
+  const raw = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+  if(!raw) return null;
+  try{ return JSON.parse(raw); }catch(e){ return null; }
+}
+function clearSession(){
+  localStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(SESSION_KEY);
+}
+
+/* ============================================================
    BOOTSTRAP
    ============================================================ */
 document.addEventListener('DOMContentLoaded', ()=>{
+  const session = loadSession();
+  if(session && session.loggedIn){
+    // Refreshing the page (or reopening the tab, if "Remember me" was checked)
+    // restores the session instead of bouncing back to the login screen —
+    // and stays on whatever page the URL hash points to, not the dashboard.
+    state.loggedIn = true;
+    if(session.lang){ state.lang = session.lang; document.documentElement.lang = session.lang; document.documentElement.dir = session.lang==='ar'?'rtl':'ltr'; }
+  }
   state.route = location.hash || '#/dashboard';
   renderApp();
 });
