@@ -1,0 +1,40 @@
+# ============================================================
+# Laravel backend (everything lives under /api)
+# ============================================================
+/api/vendor
+/api/node_modules
+/api/.env
+/api/.env.backup
+/api/.env.production
+/api/.phpunit.result.cache
+/api/Homestead.yaml
+/api/Homestead.json
+/api/auth.json
+
+/api/storage/*.key
+/api/storage/app/*
+!/api/storage/app/public
+!/api/storage/app/.gitignore
+/api/storage/framework/cache/*
+!/api/storage/framework/cache/.gitignore
+/api/storage/framework/sessions/*
+!/api/storage/framework/sessions/.gitignore
+/api/storage/framework/views/*
+!/api/storage/framework/views/.gitignore
+/api/storage/framework/testing/*
+!/api/storage/framework/testing/.gitignore
+/api/storage/logs/*
+!/api/storage/logs/.gitignore
+/api/public/storage
+/api/public/hot
+/api/bootstrap/cache/*
+!/api/bootstrap/cache/.gitignore
+
+# ============================================================
+# OS / editor noise
+# ============================================================
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+*.log
