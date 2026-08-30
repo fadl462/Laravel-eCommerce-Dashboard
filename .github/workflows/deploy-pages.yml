@@ -1,0 +1,54 @@
+name: Deploy prototype to GitHub Pages
+
+# Runs whenever storehub-prototype.html changes on main, or manually via the
+# "Run workflow" button in the Actions tab (workflow_dispatch).
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'storehub-prototype.html'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Prevents two deployments racing each other if you push twice quickly.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Build site output
+        run: |
+          mkdir -p _site
+          # This is the one line that matters: whatever the prototype file is
+          # named in the repo, it gets published as index.html — the name
+          # GitHub Pages looks for by default.
+          cp storehub-prototype.html _site/index.html
+          # Stops GitHub Pages running Jekyll processing over a plain HTML/JS file.
+          touch _site/.nojekyll
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
